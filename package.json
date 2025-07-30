@@ -1,0 +1,16 @@
+{
+  "name": "dara-studio-bot",
+  "version": "1.0.0",
+  "description": "Dara Studio WhatsApp Bot using Baileys",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "author": "Dara",
+  "license": "MIT",
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.6.0",
+    "pino": "^8.0.0",
+    "fs-extra": "^11.1.1"
+  }
+}
