@@ -1,66 +1,70 @@
-const { Boom } = require('@hapi/boom');
-const makeWASocket = require('@whiskeysockets/baileys').default;
-const { useSingleFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
-const P = require('pino');
+const { default: makeWASocket, useSingleFileAuthState, DisconnectReason } = require('@adiwajshing/baileys');
+const express = require('express');
 const fs = require('fs');
 const path = require('path');
 
-const { state, saveState } = useSingleFileAuthState('./sessions/cred.json');
-const commandsDir = path.join(__dirname, 'commands');
+// Auth file storage
+const { state, saveState } = useSingleFileAuthState('./auth_info.json');
 
-// Load all command files
-const commands = {};
-fs.readdirSync(commandsDir).forEach(file => {
-    if (file.endsWith('.js')) {
-        const command = require(`./commands/${file}`);
-        commands[command.name] = command;
-    }
+// Web server for QR code display
+const app = express();
+const port = process.env.PORT || 3000;
+
+// Start Express server for Railway QR hosting
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'qr.html'));
+});
+
+app.listen(port, () => {
+  console.log(QR code hosted at http://localhost:${port});
 });
 
 async function startBot() {
-    const sock = makeWASocket({
-        logger: P({ level: 'silent' }),
-        printQRInTerminal: true,
-        auth: state
-    });
+  const sock = makeWASocket({
+    auth: state,
+    printQRInTerminal: true,
+  });
 
-    sock.ev.on('creds.update', saveState);
+  sock.ev.on('connection.update', (update) => {
+    const { connection, lastDisconnect, qr } = update;
 
-    sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect } = update;
-        if (connection === 'close') {
-            const shouldReconnect = (lastDisconnect.error = Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
-            if (shouldReconnect) {
-                startBot();
-            }
-        } else if (connection === 'open') {
-            console.log('✅ Dara Studio Bot Connected');
-        }
-    });
+    if (qr) {
+      // Save QR to html file
+      fs.writeFileSync('./qr.html', <h2>Scan This QR Code in WhatsApp</h2><img src="https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(qr)}" />);
+      console.log('QR code updated');
+    }
 
-    sock.ev.on('messages.upsert', async ({ messages, type }) => {
-        const msg = messages[0];
-        if (!msg.message || msg.key.fromMe) return;
+    if (connection === 'close') {
+      const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
+      console.log('connection closed. Reconnecting:', shouldReconnect);
+      if (shouldReconnect) startBot();
+    }
 
-        const from = msg.key.remoteJid;
-        const body = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
+    if (connection === 'open') {
+      console.log('✅ WhatsApp connected');
+    }
+  });
 
-        const prefix = '.';
-        if (!body.startsWith(prefix)) return;
+  sock.ev.on('creds.update', saveState);
 
-        const args = body.slice(prefix.length).trim().split(/ +/);
-        const commandName = args.shift().toLowerCase();
+  // Simple response command
+  sock.ev.on('messages.upsert', async (msg) => {
+    const m = msg.messages[0];
+    if (!m.message || m.key.fromMe) return;
 
-        const command = commands[commandName];
-        if (command) {
-            try {
-                await command.run(sock, msg, args);
-            } catch (err) {
-                console.error(err);
-                await sock.sendMessage(from, { text: '❌ Error running command!' });
-            }
-        }
-    });
+    const sender = m.key.remoteJid;
+    const text = m.message.conversation || m.message.extendedTextMessage?.text || '';
+
+    if (text.toLowerCase() === 'ping') {
+      await sock.sendMessage(sender, { text: 'Pong! Dara Studio Bot is alive 🚀' });
+    }
+
+    if (text.toLowerCase() === 'menu') {
+      await sock.sendMessage(sender, { text: '📜 Dara Studio Menu\n\nType any command:\n• ping\n• about\n• help\n• ai\n\n... More coming soon!' });
+    }
+
+    // Add more 2000+ command routes later
+  });
 }
 
 startBot();
